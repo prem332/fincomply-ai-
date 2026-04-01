@@ -17,7 +17,7 @@ from agents.graph import run_pipeline
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 logging.basicConfig(
     level=logging.INFO,

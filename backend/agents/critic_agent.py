@@ -14,7 +14,7 @@ from config import (
 )
 from agents.prompts import CRITIC_AGENT_SYSTEM, CRITIC_AGENT_QUERY
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 logger = logging.getLogger(__name__)
 

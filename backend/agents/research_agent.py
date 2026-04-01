@@ -24,7 +24,7 @@ from config import (
 from agents.prompts import RESEARCH_AGENT_SYSTEM, RESEARCH_AGENT_QUERY
 
 import psycopg2
-from mistralai import Mistral
+from mistralai.client import Mistral
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)

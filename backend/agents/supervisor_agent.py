@@ -14,7 +14,7 @@ from config import (
 )
 from agents.prompts import SUPERVISOR_AGENT_SYSTEM, SUPERVISOR_AGENT_QUERY
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 logger = logging.getLogger(__name__)
 
