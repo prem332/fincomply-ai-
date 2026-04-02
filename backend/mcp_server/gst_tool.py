@@ -17,7 +17,7 @@ GST_OFFICIAL_URLS = [
     "https://www.cbic.gov.in/htdocs-cbec/gst/rss/gst-circulars.xml",
 ]
 
-CBIC_NOTIFICATION_API = "https://www.cbic.gov.in/htdocs-cbec/gst/notfcns-act-fy2024-25.htm"
+CBIC_NOTIFICATION_API = "https://cbic-gst.gov.in/central-tax-notifications.html"
 
 
 def _is_gov_url(url: str) -> bool:
@@ -41,7 +41,7 @@ def _parse_gst_rss(rss_url: str, query: str, max_results: int = 10) -> list[dict
 
         query_terms = query.lower().split()
 
-        for entry in feed.entries[:30]:  # Check top 30, filter to relevant
+        for entry in feed.entries[:30]:
             title = getattr(entry, "title", "")
             summary = getattr(entry, "summary", "")
             link = getattr(entry, "link", "")
@@ -51,10 +51,9 @@ def _parse_gst_rss(rss_url: str, query: str, max_results: int = 10) -> list[dict
             if not _is_gov_url(link):
                 continue
 
-            # Simple relevance filter — check if any query term appears
-            combined_text = f"{title} {summary}".lower()
-            if not any(term in combined_text for term in query_terms if len(term) > 3):
-                continue
+            # Relaxed filter — fetch top results even if no exact match
+            # Government RSS titles use formal language that may not match query terms
+
 
             results.append({
                 "title": title,

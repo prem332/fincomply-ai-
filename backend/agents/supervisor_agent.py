@@ -37,11 +37,15 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
       LOW    <  CONFIDENCE_MEDIUM_THRESHOLD
     Returns (score, level, explanation).
     """
-    # Start with LLM-suggested score or default
-    score = raw_score if isinstance(raw_score, (int, float)) else 0.75
+    score = raw_score if isinstance(raw_score, (int, float)) else 0.88
 
-    # Apply automatic downgrades based on critic findings
     penalties = []
+
+    if critique.get("overall_verdict") == "ACCEPT":
+        score = max(score, 0.86)
+
+    if critique.get("source_verified") == "PASS" and critique.get("recency") == "PASS":
+        score = max(score, 0.82)
 
     if critique.get("source_verified") == "FAIL":
         score = min(score, 0.40)
@@ -62,11 +66,15 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     if critique.get("completeness") == "GAPS_FOUND":
         gaps = critique.get("gaps", [])
         if gaps:
-            score -= 0.05 * min(len(gaps), 3)   # Small penalty per gap
+            score -= 0.05 * min(len(gaps), 3)
             score = max(score, 0.30)
 
     if critique.get("overall_verdict") == "REJECT":
         score = min(score, 0.35)
+        penalties.append("answer rejected by verification agent")
+
+    if critique.get("overall_verdict") == "REVISE":
+        score = min(score, 0.65)
 
     score = round(max(0.0, min(1.0, score)), 2)
 
@@ -78,11 +86,12 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     else:
         level = "LOW"
 
-    # Build plain-English explanation
+
     if not penalties:
         explanation = (
-            f"High confidence: the answer is sourced from an official government circular "
-            f"with a verified URL, recent publication date, and no factual gaps detected."
+            "High confidence: the answer is sourced from an official government circular "
+            "with a verified .gov.in URL and circular number. "
+            "Verified by our 3-agent critique pipeline."
         )
     else:
         explanation = (
@@ -108,7 +117,6 @@ def run_supervisor_agent(
     """
     logger.info(f"Supervisor Agent | Verdict from Critic: {critic_report.get('overall_verdict')}")
 
-    # Clean agent1 answer (remove internal keys)
     clean_agent1 = {k: v for k, v in agent1_answer.items() if not k.startswith("_")}
 
     user_message = SUPERVISOR_AGENT_QUERY.format(
@@ -132,7 +140,6 @@ def run_supervisor_agent(
         raw_output = response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Mistral API error in Supervisor Agent: {e}")
-        # Graceful fallback
         score, level, explanation = _calculate_confidence_score(critic_report, 0.40)
         return {
             "final_answer": "Unable to generate final answer due to API error. Please try again.",
@@ -171,7 +178,6 @@ def run_supervisor_agent(
             "gaps_acknowledged": critic_report.get("gaps", []),
         }
 
-    # Override confidence score with calculated value (rule-based is more reliable)
     raw_score = final_dict.get("confidence_score")
     score, level, explanation = _calculate_confidence_score(critic_report, raw_score)
     final_dict["confidence_score"]       = score

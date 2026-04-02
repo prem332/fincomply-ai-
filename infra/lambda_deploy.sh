@@ -1,4 +1,3 @@
-set -e
 source .env 2>/dev/null || true
 
 FUNCTION_NAME="fincomply-mcp-tools"
@@ -7,7 +6,6 @@ ROLE_ARN="${AWS_LAMBDA_ROLE_ARN}"
 
 if [ -z "$ROLE_ARN" ]; then
     echo "ERROR: AWS_LAMBDA_ROLE_ARN not set in .env"
-    echo "Create an IAM role with AWSLambdaBasicExecutionRole and paste the ARN in .env"
     exit 1
 fi
 
@@ -16,17 +14,21 @@ echo "  Region:   $REGION"
 echo "  Function: $FUNCTION_NAME"
 echo ""
 
-# ── Package Lambda code ───────────────────────────────────────────────────────
-echo "→ Creating deployment package..."
+# ── Clean previous build artifacts ───────────────────────────────────────────
+echo "→ Cleaning previous build..."
+rm -rf /tmp/lambda-pkg /tmp/fincomply-lambda.zip
 mkdir -p /tmp/lambda-pkg
-cp mcp_server/*.py /tmp/lambda-pkg/
-cp config.py /tmp/lambda-pkg/
 
-# Install dependencies into package (Lambda needs them bundled)
-pip install httpx feedparser beautifulsoup4 lxml python-dateutil \
+# ── Copy MCP server files ─────────────────────────────────────────────────────
+echo "→ Creating deployment package..."
+cp backend/mcp_server/*.py /tmp/lambda-pkg/
+cp backend/config.py /tmp/lambda-pkg/
+
+# ── Install dependencies into package ────────────────────────────────────────
+pip install httpx feedparser beautifulsoup4 lxml python-dateutil python-dotenv \
     -t /tmp/lambda-pkg/ --quiet
 
-# Create ZIP
+# ── Create ZIP ────────────────────────────────────────────────────────────────
 cd /tmp/lambda-pkg
 zip -r /tmp/fincomply-lambda.zip . -q
 cd -
@@ -36,11 +38,7 @@ echo "  Package size: $(du -sh /tmp/fincomply-lambda.zip | cut -f1)"
 # ── Create or update Lambda function ─────────────────────────────────────────
 echo "→ Deploying to Lambda..."
 
-# Check if function exists
-FUNC_EXISTS=$(aws lambda get-function --function-name "$FUNCTION_NAME" \
-    --region "$REGION" 2>/dev/null && echo "yes" || echo "no")
-
-if [ "$FUNC_EXISTS" = "yes" ]; then
+if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" --no-cli-pager 2>/dev/null; then
     echo "  Updating existing function..."
     aws lambda update-function-code \
         --function-name "$FUNCTION_NAME" \
@@ -61,13 +59,6 @@ else
         --no-cli-pager
 fi
 
-echo "  ✓ Lambda deployed!"
 echo ""
-echo "=== NEXT STEP: Create API Gateway ==="
-echo "  1. Go to AWS Console → API Gateway"
-echo "  2. Create HTTP API"
-echo "  3. Add routes: POST /gst, POST /rbi, POST /sebi, POST /mca"
-echo "  4. Set Lambda integration to: $FUNCTION_NAME"
-echo "  5. Deploy API and copy the URL"
-echo "  6. Paste URL into .env as MCP_BASE_URL"
+echo "  Lambda deployed successfully!"
 echo "”

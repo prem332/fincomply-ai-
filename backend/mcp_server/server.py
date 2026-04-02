@@ -1,8 +1,6 @@
 import json
 import logging
-import os
 
-# Configure logging (Lambda captures these logs in CloudWatch)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -10,6 +8,7 @@ from gst_tool import fetch_gst_data
 from rbi_tool import fetch_rbi_data
 from sebi_tool import fetch_sebi_data
 from mca_tool import fetch_mca_data
+from income_tax_tool import fetch_income_tax_data
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
@@ -20,37 +19,20 @@ CORS_HEADERS = {
 
 
 def _success(data: dict) -> dict:
-    """Return a 200 Lambda response."""
-    return {
-        "statusCode": 200,
-        "headers": CORS_HEADERS,
-        "body": json.dumps(data),
-    }
+    return {"statusCode": 200, "headers": CORS_HEADERS, "body": json.dumps(data)}
 
 
 def _error(message: str, status: int = 400) -> dict:
-    """Return an error Lambda response."""
-    return {
-        "statusCode": status,
-        "headers": CORS_HEADERS,
-        "body": json.dumps({"error": message}),
-    }
+    return {"statusCode": status, "headers": CORS_HEADERS, "body": json.dumps({"error": message})}
 
 
 def lambda_handler(event: dict, context) -> dict:
-    """
-    AWS Lambda entry point.
-    Routes the request to the correct MCP tool based on API Gateway path.
-    """
-    # Handle CORS preflight request
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
 
-    # Parse request path (e.g. "/gst", "/rbi")
-    path = event.get("path", "").rstrip("/").lower()
-    domain = path.split("/")[-1]   # Extract last path segment
+    path = event.get("rawPath", event.get("path", "")).rstrip("/").lower()
+    domain = path.split("/")[-1]
 
-    # Parse request body
     try:
         body = json.loads(event.get("body") or "{}")
         query = body.get("query", "")
@@ -59,14 +41,13 @@ def lambda_handler(event: dict, context) -> dict:
         return _error(f"Invalid request body: {e}")
 
     if not query:
-        return _error("'query' field is required in request body")
+        return _error("'query' field is required")
 
     if max_results < 1 or max_results > 20:
         max_results = 10
 
     logger.info(f"MCP request: domain={domain}, query={query[:60]}")
 
-    # Route to correct tool
     try:
         if domain == "gst":
             results = fetch_gst_data(query, max_results)
@@ -76,8 +57,10 @@ def lambda_handler(event: dict, context) -> dict:
             results = fetch_sebi_data(query, max_results)
         elif domain == "mca":
             results = fetch_mca_data(query, max_results)
+        elif domain == "incometax":
+            results = fetch_income_tax_data(query, max_results)
         else:
-            return _error(f"Unknown domain: '{domain}'. Use: gst, rbi, sebi, mca")
+            return _error(f"Unknown domain: '{domain}'. Use: gst, rbi, sebi, mca, incometax")
 
         return _success({
             "domain": domain,

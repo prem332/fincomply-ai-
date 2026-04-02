@@ -69,9 +69,9 @@ def fetch_rbi_data(query: str, max_results: int = 10) -> list[dict]:
                 if not _is_rbi_url(link):
                     continue
 
-                combined = f"{title} {summary}".lower()
-                if not any(t in combined for t in query_terms if len(t) > 3):
-                    continue
+                # Relaxed filter — fetch top results even if no exact match
+                # Government RSS titles use formal language that may not match query terms
+
 
                 results.append({
                     "title": title,

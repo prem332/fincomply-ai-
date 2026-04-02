@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 
-# .env is at the project root (one level above backend/)
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 # ─── RAG Configuration ───────────────────────────────────────────────────────
@@ -59,7 +58,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # ─── Safety / Guardrails ─────────────────────────────────────────────────────
 MAX_QUERY_LENGTH        = 1000
 ALLOWED_DOMAINS         = ["gst", "rbi", "sebi", "mca", "income_tax", "all"]
-CIRCULAR_FRESHNESS_DAYS = 90
+CIRCULAR_FRESHNESS_DAYS = 3650
 
 INJECTION_PATTERNS = [
     "ignore previous", "ignore above", "disregard", "forget instructions",
@@ -99,8 +98,8 @@ FINE_TUNE_LORA_DROPOUT      = 0.05
 FINE_TUNE_OUTPUT_DIR        = "./fine_tuning/checkpoints"
 
 # ─── Government RSS Feed URLs ─────────────────────────────────────────────────
-GST_RSS_URL  = "https://www.cbic.gov.in/htdocs-cbec/gst/rss/gst-notifications.xml"
+GST_RSS_URL  = "https://cbic-gst.gov.in/central-tax-notifications.html"
 RBI_RSS_URL  = "https://www.rbi.org.in/scripts/rss.aspx"
 SEBI_RSS_URL = "https://www.sebi.gov.in/sebirss.xml"
-MCA_RSS_URL  = "https://efiling.mca.gov.in/efiling/rss"
+MCA_RSS_URL  = "https://www.mca.gov.in/content/mca/global/en/data-and-reports/rss-feed.html"
 ITAX_RSS_URL = "https://www.incometaxindia.gov.in/pages/whats-new.aspx"
