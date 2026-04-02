@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import json
 import logging
 import time
@@ -8,7 +9,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import (
-    API_HOST, API_PORT, FRONTEND_URL,
+    API_HOST, API_PORT,
     MAX_QUERY_LENGTH, ALLOWED_DOMAINS, INJECTION_PATTERNS,
     MISTRAL_API_KEY, MISTRAL_MODEL,
 )
@@ -25,19 +26,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="FinComply AI",
-    description="India's Real-Time Financial Regulatory Intelligence Agent",
-    version="1.0.0",
-)
+_nli_model = None
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _load_nli_model():
+    global _nli_model
+    try:
+        from transformers import pipeline as hf_pipeline
+        logger.info("Loading NLI model at startup...")
+        _nli_model = hf_pipeline(
+            "text-classification",
+            model="cross-encoder/nli-deberta-v3-small",
+            device=-1,
+        )
+        logger.info("NLI model loaded successfully")
+    except Exception as e:
+        logger.warning(f"NLI model failed to load: {e} — hallucination check will be skipped")
+        _nli_model = None
+
+_load_nli_model()
 
 _mistral_client: Optional[Mistral] = None
 
@@ -46,6 +52,21 @@ def _get_mistral_client() -> Mistral:
     if _mistral_client is None:
         _mistral_client = Mistral(api_key=MISTRAL_API_KEY)
     return _mistral_client
+
+# ── FastAPI App ───────────────────────────────────────────────────────────────
+app = FastAPI(
+    title="FinComply AI",
+    description="India's Real-Time Financial Regulatory Intelligence Agent",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ── Request / Response Models ─────────────────────────────────────────────────
@@ -88,9 +109,9 @@ class QueryResponse(BaseModel):
 
 def _fast_injection_check(query: str) -> bool:
     """
-    Quick check against known injection phrases.
+    Quick check against known injection phrases from config.py.
     Returns True if injection detected.
-    Runs before any LLM call (zero cost).
+    Runs before any LLM call — zero cost.
     """
     query_lower = query.lower()
     return any(pattern in query_lower for pattern in INJECTION_PATTERNS)
@@ -131,22 +152,18 @@ def _llm_injection_check(query: str) -> bool:
 
 def _input_guardrail(query: str, domain: str) -> Optional[str]:
     """
-    Validates query is relevant to the FinComply AI scope.
+    Validates query is relevant to FinComply AI scope.
     Returns None if OK, or a rejection reason string.
     """
-    # Domain is already validated by Pydantic
-    # Check for PII patterns (basic)
-    import re
     pii_patterns = [
-        r"\b\d{10}\b",            # Phone numbers
-        r"\b\d{12}\b",            # Aadhaar
-        r"\b[A-Z]{5}\d{4}[A-Z]\b",  # PAN card
-        r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",  # Email
+        r"\b\d{10}\b",                                              # Phone numbers
+        r"\b\d{12}\b",                                              # Aadhaar
+        r"\b[A-Z]{5}\d{4}[A-Z]\b",                                 # PAN card
+        r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",   # Email
     ]
     for pattern in pii_patterns:
         if re.search(pattern, query):
             return "Please do not share personal information (phone, Aadhaar, PAN, email) in your query."
-
     return None
 
 
@@ -154,20 +171,16 @@ def _input_guardrail(query: str, domain: str) -> Optional[str]:
 
 def _hallucination_check(answer_text: str, source_text: str) -> dict:
     """
-    Uses NLI (Natural Language Inference) to verify answer is entailed by source.
-    Model: cross-encoder/nli-deberta-v3-small (lightweight, runs on CPU).
+    Uses pre-loaded NLI model to verify answer is entailed by source.
+    _nli_model is loaded ONCE at startup — not per request.
     """
+    if _nli_model is None:
+        return {"hallucinated": False, "label": "SKIPPED", "confidence": 0.0}
+
     try:
-        from transformers import pipeline
-        nli = pipeline(
-            "text-classification",
-            model="cross-encoder/nli-deberta-v3-small",
-            device=-1,  # CPU
-        )
-        # Limit text lengths to avoid OOM
         truncated_source = source_text[:512]
         truncated_answer = answer_text[:256]
-        result = nli(f"{truncated_source} [SEP] {truncated_answer}")
+        result = _nli_model(f"{truncated_source} [SEP] {truncated_answer}")
         label = result[0]["label"]
         score = result[0]["score"]
         return {
@@ -185,7 +198,11 @@ def _hallucination_check(answer_text: str, source_text: str) -> dict:
 @app.get("/health")
 def health_check():
     """Health check endpoint — used by EC2 load balancer and Docker."""
-    return {"status": "healthy", "service": "FinComply AI"}
+    return {
+        "status": "healthy",
+        "service": "FinComply AI",
+        "nli_model_loaded": _nli_model is not None,
+    }
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -208,7 +225,7 @@ def process_query(request: QueryRequest) -> QueryResponse:
             query=query,
             domain=domain,
             answer=None,
-            processing_steps=["Injection Detected ✗"],
+            processing_steps=["Injection Detected"],
             response_time_ms=_ms(start_time),
             rejected=True,
             rejection_reason="Your query contains patterns that are not allowed. Please ask a compliance question.",
@@ -222,13 +239,13 @@ def process_query(request: QueryRequest) -> QueryResponse:
             query=query,
             domain=domain,
             answer=None,
-            processing_steps=["Security Check ✗"],
+            processing_steps=["Security Check Failed"],
             response_time_ms=_ms(start_time),
             rejected=True,
             rejection_reason="Your query was flagged by our security system. Please ask a GST, RBI, SEBI, or MCA compliance question.",
         )
 
-    # ── Step 3: Input guardrail (PII, domain check) ───────────────────────────
+    # ── Step 3: Input guardrail (PII check) ───────────────────────────────────
     guardrail_reason = _input_guardrail(query, domain)
     if guardrail_reason:
         return QueryResponse(
@@ -236,7 +253,7 @@ def process_query(request: QueryRequest) -> QueryResponse:
             query=query,
             domain=domain,
             answer=None,
-            processing_steps=["Input Guardrail ✗"],
+            processing_steps=["Input Guardrail Failed"],
             response_time_ms=_ms(start_time),
             rejected=True,
             rejection_reason=guardrail_reason,
@@ -252,9 +269,12 @@ def process_query(request: QueryRequest) -> QueryResponse:
     final_answer = pipeline_result.get("answer", {})
     processing_steps = pipeline_result.get("processing_steps", [])
 
-    # ── Step 5: Hallucination NLI check (downgrade confidence if detected) ────
+    # ── Step 5: Hallucination NLI check (uses pre-loaded model) ──────────────
     answer_text = final_answer.get("final_answer", "")
-    source_text = final_answer.get("source_url", "") + " " + str(final_answer.get("circular_number", ""))
+    source_text = (
+        final_answer.get("source_url", "") + " " +
+        str(final_answer.get("circular_number", ""))
+    )
 
     if answer_text and source_text.strip():
         hallucination_result = _hallucination_check(answer_text, source_text)
@@ -265,8 +285,8 @@ def process_query(request: QueryRequest) -> QueryResponse:
                 final_answer.get("confidence_score", 0.5), 0.40
             )
             final_answer["confidence_explanation"] = (
-                "Confidence lowered: our NLI verification system detected a potential "
-                "mismatch between the answer and the source document. "
+                "Confidence lowered: NLI verification detected a potential mismatch "
+                "between the answer and the source document. "
                 "Please verify directly at the official government portal."
             )
 
