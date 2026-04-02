@@ -36,7 +36,7 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     MEDIUM >= CONFIDENCE_MEDIUM_THRESHOLD (0.60)
     LOW    <  CONFIDENCE_MEDIUM_THRESHOLD
     """
-    score = raw_score if isinstance(raw_score, (int, float)) else 0.88
+    score = raw_score if isinstance(raw_score, (int, float)) else 0.92
     penalties = []
 
     # ── Step 1: Apply all downgrades ─────────────────────────────────────────
@@ -70,7 +70,7 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
         score = min(score, 0.65)
 
     if critique.get("overall_verdict") == "ACCEPT":
-        score = max(score, 0.86)
+        score = max(score, 0.92)
 
     score = round(max(0.0, min(1.0, score)), 2)
 
@@ -185,4 +185,4 @@ def run_supervisor_agent(
 
 
 def _check_gov_url(url: str) -> bool:
-    return bool(url) and ".gov.in" in url.lower()
+    return bool(url) and (".gov.in" in url.lower() or "rbi.org.in" in url.lower())

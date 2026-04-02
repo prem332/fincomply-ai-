@@ -1,5 +1,4 @@
 const DOMAINS = [
-  { id: "all",        label: "All Domains", dot: "#0F766E", desc: "GST + RBI + SEBI + MCA" },
   { id: "gst",        label: "GST",         dot: "#2563EB", desc: "cbic.gov.in" },
   { id: "rbi",        label: "RBI",         dot: "#7C3AED", desc: "rbi.org.in" },
   { id: "sebi",       label: "SEBI",        dot: "#DB2777", desc: "sebi.gov.in" },

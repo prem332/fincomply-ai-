@@ -34,7 +34,9 @@ def _check_gov_url(url: str) -> bool:
     """Returns True if URL is from an official .gov.in domain."""
     if not url or url == "Unknown":
         return False
-    return ".gov.in" in url.lower()
+    url_lower = url.lower()
+    return ".gov.in" in url_lower or "rbi.org.in" in url_lower
+
 
 
 def _check_circular_freshness(published_date_str: Optional[str]) -> dict:

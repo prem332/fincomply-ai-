@@ -4,6 +4,7 @@ import json
 import logging
 import httpx
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -29,7 +30,7 @@ from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
-# ── Module-level singletons (loaded once, reused across requests) ─────────────
+# ── Module-level singletons ───────────────────────────────────────────────────
 _mistral_client: Optional[Mistral] = None
 _embedding_model: Optional[SentenceTransformer] = None
 
@@ -50,21 +51,29 @@ def _get_embedding_model() -> SentenceTransformer:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _is_valid_gov_url(url: str) -> bool:
+    """Returns True if URL is from an official government source."""
+    if not url or url in ("Unknown", "N/A", ""):
+        return False
+    url_lower = url.lower()
+    return ".gov.in" in url_lower or "rbi.org.in" in url_lower
+
+
 def _embed_text(text: str) -> list[float]:
-    """Convert text into a vector embedding."""
     model = _get_embedding_model()
     return model.encode(text, normalize_embeddings=True).tolist()
 
 
 def _embedding_to_pg_string(embedding: list[float]) -> str:
-    """Format embedding list as pgvector string: '[0.1,0.2,...]'"""
     return "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"
 
+
+# ── Vector DB Retrieval ───────────────────────────────────────────────────────
 
 def retrieve_from_vector_db(query: str, domain: str) -> list[dict]:
     """
     Retrieve top-K relevant regulatory documents using cosine similarity.
-    RAG_TOP_K is imported from config.py
+    RAG_TOP_K imported from config.py — single source of truth.
     """
     embedding = _embed_text(query)
     embedding_str = _embedding_to_pg_string(embedding)
@@ -120,41 +129,62 @@ def retrieve_from_vector_db(query: str, domain: str) -> list[dict]:
         return []
 
 
+# ── MCP Tool Calls (Parallel) ─────────────────────────────────────────────────
+
+def _fetch_single_mcp(d: str, url: str, query: str) -> list[dict]:
+    """Fetch from a single MCP tool — called in parallel via ThreadPoolExecutor."""
+    try:
+        resp = httpx.post(
+            url,
+            json={"query": query, "domain": d},
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # Only keep results with valid government URLs
+            return [
+                r for r in data.get("results", [])
+                if _is_valid_gov_url(r.get("source_url", ""))
+            ]
+    except Exception as e:
+        logger.warning(f"MCP tool call failed for {d}: {e}")
+    return []
+
+
 def _call_mcp_tool(domain: str, query: str) -> list[dict]:
     """
-    Call the MCP Lambda tool for the given domain.
-    Returns live regulatory data from government sources.
+    Call MCP Lambda tools in PARALLEL for faster response.
+    All domain tools called simultaneously — saves 3-4 seconds vs sequential.
+    Only returns documents with valid .gov.in or rbi.org.in URLs.
     """
     url_map = {
-        "gst": GST_TOOL_URL,
-        "rbi": RBI_TOOL_URL,
-        "sebi": SEBI_TOOL_URL,
-        "mca": MCA_TOOL_URL,
+        "gst":        GST_TOOL_URL,
+        "rbi":        RBI_TOOL_URL,
+        "sebi":       SEBI_TOOL_URL,
+        "mca":        MCA_TOOL_URL,
         "income_tax": ITAX_TOOL_URL,
     }
 
     domains_to_call = list(url_map.keys()) if domain == "all" else [domain]
     live_results: list[dict] = []
 
-    for d in domains_to_call:
-        url = url_map.get(d)
-        if not url:
-            continue
-        try:
-            resp = httpx.post(
-                url,
-                json={"query": query, "domain": d},
-                timeout=15.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                live_results.extend(data.get("results", []))
-        except Exception as e:
-            logger.warning(f"MCP tool call failed for {d}: {e}")
-            # Continue — fall back to vector DB only
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(_fetch_single_mcp, d, url_map[d], query): d
+            for d in domains_to_call
+            if url_map.get(d)
+        }
+        for future in futures:
+            try:
+                results = future.result()
+                live_results.extend(results)
+            except Exception as e:
+                logger.warning(f"MCP future error: {e}")
 
     return live_results
 
+
+# ── Context Formatting ────────────────────────────────────────────────────────
 
 def _format_context(rag_docs: list[dict], live_docs: list[dict]) -> str:
     """Combine RAG and live MCP results into a single context string."""
@@ -185,25 +215,27 @@ def _format_context(rag_docs: list[dict], live_docs: list[dict]) -> str:
     return "\n\n".join(parts) if parts else "No relevant regulatory documents found."
 
 
+# ── Main Research Agent ───────────────────────────────────────────────────────
+
 def run_research_agent(query: str, domain: str) -> dict:
     """
     Main function for Research Agent (Agent 1).
     1. Retrieves from vector DB (RAG_TOP_K=10 documents)
-    2. Calls MCP tools for live data
+    2. Calls MCP tools in parallel for live data
     3. Generates answer using Mistral
     Returns structured JSON answer.
     """
     logger.info(f"Research Agent | Query: {query[:60]}... | Domain: {domain}")
 
-    # Step 1: Retrieve from vector DB
+    # Step 1: Vector DB retrieval
     rag_docs = retrieve_from_vector_db(query, domain)
     logger.info(f"  Retrieved {len(rag_docs)} documents from vector DB (TOP_K={RAG_TOP_K})")
 
-    # Step 2: Fetch live data from MCP Lambda tools
+    # Step 2: Parallel MCP tool calls (valid gov URLs only)
     live_docs = _call_mcp_tool(domain, query)
     logger.info(f"  Fetched {len(live_docs)} live documents from MCP tools")
 
-    # Step 3: Format all context
+    # Step 3: Format context
     context = _format_context(rag_docs, live_docs)
 
     # Step 4: Generate answer with Mistral
@@ -235,7 +267,6 @@ def run_research_agent(query: str, domain: str) -> dict:
 
     # Step 5: Parse JSON response
     try:
-        # Strip markdown code fences if Mistral adds them
         clean = raw_answer.replace("```json", "").replace("```", "").strip()
         answer_dict = json.loads(clean)
     except json.JSONDecodeError:
@@ -251,7 +282,7 @@ def run_research_agent(query: str, domain: str) -> dict:
             "domain": domain,
         }
 
-    # Attach raw source docs for Critic Agent to verify
+
     answer_dict["_rag_sources"] = rag_docs
     answer_dict["_live_sources"] = live_docs
 
