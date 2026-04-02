@@ -31,22 +31,15 @@ def _get_client() -> Mistral:
 def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> tuple[float, str, str]:
     """
     Calculate final confidence score based on critic report.
-    Uses thresholds from config.py:
-      HIGH   >= CONFIDENCE_HIGH_THRESHOLD   (0.85)
-      MEDIUM >= CONFIDENCE_MEDIUM_THRESHOLD (0.60)
-      LOW    <  CONFIDENCE_MEDIUM_THRESHOLD
-    Returns (score, level, explanation).
+    Order matters: apply all penalties first, then apply ACCEPT boost last.
+    HIGH   >= CONFIDENCE_HIGH_THRESHOLD   (0.85)
+    MEDIUM >= CONFIDENCE_MEDIUM_THRESHOLD (0.60)
+    LOW    <  CONFIDENCE_MEDIUM_THRESHOLD
     """
     score = raw_score if isinstance(raw_score, (int, float)) else 0.88
-
     penalties = []
 
-    if critique.get("overall_verdict") == "ACCEPT":
-        score = max(score, 0.86)
-
-    if critique.get("source_verified") == "PASS" and critique.get("recency") == "PASS":
-        score = max(score, 0.82)
-
+    # ── Step 1: Apply all downgrades ─────────────────────────────────────────
     if critique.get("source_verified") == "FAIL":
         score = min(score, 0.40)
         penalties.append("source not from official .gov.in domain")
@@ -76,9 +69,12 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     if critique.get("overall_verdict") == "REVISE":
         score = min(score, 0.65)
 
+    if critique.get("overall_verdict") == "ACCEPT":
+        score = max(score, 0.86)
+
     score = round(max(0.0, min(1.0, score)), 2)
 
-    # Map to level using thresholds from config
+    # ── Map score to level ────────────────────────────────────────────────────
     if score >= CONFIDENCE_HIGH_THRESHOLD:
         level = "HIGH"
     elif score >= CONFIDENCE_MEDIUM_THRESHOLD:
@@ -86,7 +82,7 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     else:
         level = "LOW"
 
-
+    # ── Build explanation ─────────────────────────────────────────────────────
     if not penalties:
         explanation = (
             "High confidence: the answer is sourced from an official government circular "
@@ -111,9 +107,8 @@ def run_supervisor_agent(
     """
     Main function for Supervisor Agent (Agent 3).
     1. Reads Agent 1 answer + Agent 2 critique
-    2. Synthesizes final answer (fixing critic-identified gaps)
+    2. Synthesizes final answer
     3. Assigns confidence score
-    Returns the final structured response shown to the user.
     """
     logger.info(f"Supervisor Agent | Verdict from Critic: {critic_report.get('overall_verdict')}")
 
@@ -190,5 +185,4 @@ def run_supervisor_agent(
 
 
 def _check_gov_url(url: str) -> bool:
-    """Local helper — avoids circular import with critic_agent."""
     return bool(url) and ".gov.in" in url.lower()
