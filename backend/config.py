@@ -77,7 +77,7 @@ INJECTION_PATTERNS = [
 ]
 
 # ─── Confidence Thresholds ───────────────────────────────────────────────────
-CONFIDENCE_HIGH_THRESHOLD   = 0.85
+CONFIDENCE_HIGH_THRESHOLD   = 0.92
 CONFIDENCE_MEDIUM_THRESHOLD = 0.60
 
 # ─── RAGAS Evaluation Thresholds ─────────────────────────────────────────────
