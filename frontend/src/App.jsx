@@ -57,7 +57,7 @@ export default function App() {
       {/* ── Header ── */}
       <header style={{ backgroundColor: "#0F766E", padding: "12px 32px", display: "flex", alignItems: "center", gap: "12px" }}>
         <span style={{ fontSize: "22px" }}>⚖️</span>
-        <h1 style={{ fontFamily: "Syne, sans-serif", fontSize: "1.25rem", fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
+        <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "1.25rem", fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>
           FinComply AI
         </h1>
         <span style={{ fontFamily: "DM Sans, sans-serif", fontSize: "0.75rem", color: "#A7F3D0", backgroundColor: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: "99px" }}>
@@ -93,7 +93,7 @@ export default function App() {
         {/* ── Main Center ── */}
         <main style={{ padding: "28px 32px", overflowY: "auto" }}>
           <div style={{ marginBottom: "24px" }}>
-            <h2 style={{ fontFamily: "Syne, sans-serif", fontSize: "1.75rem", fontWeight: 800, color: "#1A2E2B", marginBottom: "6px" }}>
+            <h2 style={{ fontFamily: "Inter, sans-serif", fontSize: "1.75rem", fontWeight: 800, color: "#1A2E2B", marginBottom: "6px" }}>
               India Financial Regulatory Intelligence
             </h2>
             <p style={{ color: "#3D5A56", fontSize: "0.9375rem" }}>
