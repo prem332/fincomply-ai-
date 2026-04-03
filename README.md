@@ -51,15 +51,15 @@ User Query
 ┌─────────────────────────────────────────────────────────────┐
 │              3-Agent LangGraph Pipeline                     │
 │                                                             │
-│  ┌──────────────────┐   ┌──────────────────┐   ┌─────────┐ │
-│  │  Research Agent  │──▶│  Critic Agent    │──▶│Supervisor│ │
-│  │  (Agent 1)       │   │  (Agent 2)       │   │(Agent 3) │ │
-│  │                  │   │  LLM as Judge    │   │         │ │
-│  │  • pgvector RAG  │   │  • URL verify    │   │• Final  │ │
-│  │  • MCP Lambda    │   │  • Circular No.  │   │  answer │ │
-│  │  • Fine-tuned    │   │  • Recency check │   │• 92%    │ │
-│  │    Mistral 7B    │   │  • Mistral API   │   │  conf.  │ │
-│  └──────────────────┘   └──────────────────┘   └─────────┘ │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌─────────┐  │
+│  │  Research Agent  │─▶│  Critic Agent    │─▶│Supervisor│  │
+│  │  (Agent 1)       │   │  (Agent 2)       │   │(Agent 3)│  │
+│  │                  │   │  LLM as Judge    │   │         │  │
+│  │  • pgvector RAG  │   │  • URL verify    │   │• Final  │  │
+│  │  • MCP Lambda    │   │  • Circular No.  │   │  answer │  │
+│  │  • Fine-tuned    │   │  • Recency check │   │• 92%    │  │
+│  │    Mistral 7B    │   │  • Mistral API   │   │  conf.  │  │
+│  └──────────────────┘   └──────────────────┘   └─────────┘  │
 └─────────────────────────────────────────────────────────────┘
     │                           │
     ▼                           ▼
@@ -292,7 +292,7 @@ Frontend runs at `http://localhost:5173`
 
 For the complete step-by-step AWS deployment guide (IAM, RDS, Lambda, API Gateway, EC2, DuckDNS, HTTPS):
 
-📄 **[AWS Deployment Guide](YOUR_GOOGLE_DOCS_LINK_HERE)**
+📄 **[AWS Deployment Guide](https://docs.google.com/document/d/1IUpwjVjX7Ixyw7cITi5FQGIu09Ep0ykA/edit?usp=drive_link&ouid=106005894817234320205&rtpof=true&sd=true)**
 
 ### Quick Overview
 
@@ -381,9 +381,5 @@ LANGCHAIN_TRACING_V2=true
 ## Built By
 
 **Prem Kumar** — AI/ML Engineer
-
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=flat&logo=linkedin)](https://linkedin.com/in/premkumar)
-[![GitHub](https://img.shields.io/badge/GitHub-prem332-black?style=flat&logo=github)](https://github.com/prem332)
-[![HuggingFace](https://img.shields.io/badge/HuggingFace-prem332-yellow?style=flat&logo=huggingface)](https://huggingface.co/prem332)
 
 ---
