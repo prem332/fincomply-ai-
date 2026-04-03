@@ -3,11 +3,39 @@
 > **India's Real-Time Financial Regulatory Intelligence System**  
 > Powered by a 3-Agent LangGraph Pipeline · Fine-Tuned Mistral 7B · MCP Tools on AWS Lambda
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-fincomply--ai.duckdns.org-teal?style=for-the-badge)](https://fincomply-ai.duckdns.org)
-[![HuggingFace](https://img.shields.io/badge/Model-prem332%2Ffincomply--mistral--7b-yellow?style=for-the-badge&logo=huggingface)](https://huggingface.co/prem332/fincomply-mistral-7b)
-[![Python](https://img.shields.io/badge/Python-3.12-blue?style=for-the-badge&logo=python)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
-[![LangSmith](https://img.shields.io/badge/Monitored-LangSmith-orange?style=for-the-badge)](https://smith.langchain.com)
+[
+
+![Live Demo](https://img.shields.io/badge/Live%20Demo-fincomply--ai.duckdns.org-teal?style=for-the-badge)
+
+](https://fincomply-ai.duckdns.org)
+[
+
+![Video Demo](https://img.shields.io/badge/Video%20Demo-Google%20Drive-red?style=for-the-badge&logo=google-drive)
+
+](https://drive.google.com/file/d/1fzgjg6cMu7oh3DAHfR9Pmiw61krvM8KZ/view?usp=drivesdk)
+[
+
+![HuggingFace](https://img.shields.io/badge/Model-prem332%2Ffincomply--mistral--7b-yellow?style=for-the-badge&logo=huggingface)
+
+](https://huggingface.co/prem332/fincomply-mistral-7b)
+[
+
+![Python](https://img.shields.io/badge/Python-3.12-blue?style=for-the-badge&logo=python)
+
+](https://python.org)
+[
+
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green?style=for-the-badge&logo=fastapi)
+
+](https://fastapi.tiangolo.com)
+[
+
+![LangSmith](https://img.shields.io/badge/Monitored-LangSmith-orange?style=for-the-badge)
+
+](https://smith.langchain.com)
+
+> 🌐 **Live URL:** https://fincomply-ai.duckdns.org  
+> ⚠️ **Availability Note:** Live demo may be temporarily offline as AWS EC2 and RDS instances are stopped between demonstrations to manage infrastructure costs. To experience the full system, please watch the [📹 Video Demo](https://drive.google.com/file/d/1fzgjg6cMu7oh3DAHfR9Pmiw61krvM8KZ/view?usp=drivesdk) or view production screenshots in [`results/`](./results/).
 
 ---
 
