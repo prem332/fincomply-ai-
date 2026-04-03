@@ -353,9 +353,7 @@ LANGCHAIN_TRACING_V2=true
 
 ## Built By
 
-**Prem Kumar** — AI/ML Engineer  
-Google Cloud Professional ML Engineer Certified  
-B.Tech, IIIT Sri City
+**Prem Kumar** — AI/ML Engineer
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=flat&logo=linkedin)](https://linkedin.com/in/premkumar)
 [![GitHub](https://img.shields.io/badge/GitHub-prem332-black?style=flat&logo=github)](https://github.com/prem332)
