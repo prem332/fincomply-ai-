@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import logging
+import httpx
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -9,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     MISTRAL_API_KEY,
     MISTRAL_FINE_TUNED_MODEL,
+    HF_TOKEN,
+    HF_INFERENCE_URL,
     CONFIDENCE_HIGH_THRESHOLD,
     CONFIDENCE_MEDIUM_THRESHOLD,
 )
@@ -28,13 +31,63 @@ def _get_client() -> Mistral:
     return _mistral_client
 
 
+# ── HuggingFace Inference ─────────────────────────────────────────────────────
+
+def _call_hf_inference(system_prompt: str, user_message: str) -> Optional[str]:
+    """
+    Call fine-tuned Mistral 7B via HuggingFace Inference API.
+    Returns None if unavailable — supervisor falls back to Mistral API.
+    """
+    if not HF_TOKEN or not HF_INFERENCE_URL:
+        return None
+
+    try:
+        prompt = f"<s>[INST] {system_prompt}\n\n{user_message} [/INST]"
+
+        response = httpx.post(
+            HF_INFERENCE_URL,
+            headers={
+                "Authorization": f"Bearer {HF_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 1800,
+                    "temperature": 0.1,
+                    "return_full_text": False,
+                }
+            },
+            timeout=90.0,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                generated = result[0].get("generated_text", "")
+                logger.info("  Supervisor Agent: using fine-tuned HF model ✓")
+                return generated.strip()
+        elif response.status_code == 503:
+            logger.warning("  HF model cold start — falling back to Mistral API")
+            return None
+        else:
+            logger.warning(f"  HF inference error {response.status_code} — falling back")
+            return None
+
+    except Exception as e:
+        logger.warning(f"  HF inference failed: {e} — falling back to Mistral API")
+        return None
+
+
+# ── Confidence Scoring ────────────────────────────────────────────────────────
+
 def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> tuple[float, str, str]:
     """
     Calculate final confidence score based on critic report.
-    Order matters: apply all penalties first, then apply ACCEPT boost last.
-    HIGH   >= CONFIDENCE_HIGH_THRESHOLD   (0.85)
-    MEDIUM >= CONFIDENCE_MEDIUM_THRESHOLD (0.60)
-    LOW    <  CONFIDENCE_MEDIUM_THRESHOLD
+    Order: apply all penalties first, then ACCEPT boost last.
+    HIGH   >= 0.85
+    MEDIUM >= 0.60
+    LOW    <  0.60
     """
     score = raw_score if isinstance(raw_score, (int, float)) else 0.92
     penalties = []
@@ -69,12 +122,13 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     if critique.get("overall_verdict") == "REVISE":
         score = min(score, 0.65)
 
+    # ── Step 2: ACCEPT boost LAST — overrides all penalties ──────────────────
     if critique.get("overall_verdict") == "ACCEPT":
         score = max(score, 0.92)
 
     score = round(max(0.0, min(1.0, score)), 2)
 
-    # ── Map score to level ────────────────────────────────────────────────────
+    # Map to level
     if score >= CONFIDENCE_HIGH_THRESHOLD:
         level = "HIGH"
     elif score >= CONFIDENCE_MEDIUM_THRESHOLD:
@@ -82,12 +136,12 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     else:
         level = "LOW"
 
-    # ── Build explanation ─────────────────────────────────────────────────────
+    # Build explanation
     if not penalties:
         explanation = (
             "High confidence: the answer is sourced from an official government circular "
             "with a verified .gov.in URL and circular number. "
-            "Verified by our 3-agent critique pipeline."
+            "Verified by our 3-agent critique pipeline using fine-tuned Mistral 7B."
         )
     else:
         explanation = (
@@ -98,6 +152,8 @@ def _calculate_confidence_score(critique: dict, raw_score: Optional[float]) -> t
     return score, level, explanation
 
 
+# ── Main Supervisor Agent ─────────────────────────────────────────────────────
+
 def run_supervisor_agent(
     user_query: str,
     domain: str,
@@ -106,9 +162,7 @@ def run_supervisor_agent(
 ) -> dict:
     """
     Main function for Supervisor Agent (Agent 3).
-    1. Reads Agent 1 answer + Agent 2 critique
-    2. Synthesizes final answer
-    3. Assigns confidence score
+    Uses fine-tuned Mistral 7B → falls back to Mistral API.
     """
     logger.info(f"Supervisor Agent | Verdict from Critic: {critic_report.get('overall_verdict')}")
 
@@ -121,18 +175,22 @@ def run_supervisor_agent(
         critic_report=json.dumps(critic_report, indent=2, default=str),
     )
 
+    # Try fine-tuned HF model first, fall back to Mistral API
     try:
-        client = _get_client()
-        response = client.chat.complete(
-            model=MISTRAL_FINE_TUNED_MODEL,
-            messages=[
-                {"role": "system", "content": SUPERVISOR_AGENT_SYSTEM},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.1,
-            max_tokens=1800,
-        )
-        raw_output = response.choices[0].message.content.strip()
+        raw_output = _call_hf_inference(SUPERVISOR_AGENT_SYSTEM, user_message)
+        if raw_output is None:
+            client = _get_client()
+            response = client.chat.complete(
+                model=MISTRAL_FINE_TUNED_MODEL,
+                messages=[
+                    {"role": "system", "content": SUPERVISOR_AGENT_SYSTEM},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.1,
+                max_tokens=1800,
+            )
+            raw_output = response.choices[0].message.content.strip()
+            logger.info("  Supervisor Agent: using Mistral API (fallback)")
     except Exception as e:
         logger.error(f"Mistral API error in Supervisor Agent: {e}")
         score, level, explanation = _calculate_confidence_score(critic_report, 0.40)
@@ -173,6 +231,7 @@ def run_supervisor_agent(
             "gaps_acknowledged": critic_report.get("gaps", []),
         }
 
+    # Override with rule-based confidence
     raw_score = final_dict.get("confidence_score")
     score, level, explanation = _calculate_confidence_score(critic_report, raw_score)
     final_dict["confidence_score"]       = score

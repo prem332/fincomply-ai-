@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     MISTRAL_API_KEY,
     MISTRAL_FINE_TUNED_MODEL,
+    HF_TOKEN,
+    HF_INFERENCE_URL,
     DATABASE_URL,
     RAG_TOP_K,
     VECTOR_TABLE_NAME,
@@ -66,6 +68,71 @@ def _embed_text(text: str) -> list[float]:
 
 def _embedding_to_pg_string(embedding: list[float]) -> str:
     return "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"
+
+
+# ── HuggingFace Inference API ─────────────────────────────────────────────────
+
+def _call_hf_inference(system_prompt: str, user_message: str) -> Optional[str]:
+    """
+    Call fine-tuned Mistral 7B via HuggingFace Inference API.
+    Returns None if model is unavailable (cold start, rate limit etc.)
+    Falls back to Mistral API in that case.
+    """
+    if not HF_TOKEN or not HF_INFERENCE_URL:
+        return None
+
+    try:
+        prompt = f"<s>[INST] {system_prompt}\n\n{user_message} [/INST]"
+
+        response = httpx.post(
+            HF_INFERENCE_URL,
+            headers={
+                "Authorization": f"Bearer {HF_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 1500,
+                    "temperature": 0.1,
+                    "return_full_text": False,
+                }
+            },
+            timeout=90.0,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                generated = result[0].get("generated_text", "")
+                logger.info("  Research Agent: using fine-tuned HF model ✓")
+                return generated.strip()
+        elif response.status_code == 503:
+            logger.warning("  HF model cold start — falling back to Mistral API")
+            return None
+        else:
+            logger.warning(f"  HF inference error {response.status_code} — falling back")
+            return None
+
+    except Exception as e:
+        logger.warning(f"  HF inference failed: {e} — falling back to Mistral API")
+        return None
+
+
+def _call_mistral_api(system_prompt: str, user_message: str) -> str:
+    """Fallback: Call Mistral API with base model."""
+    client = _get_mistral_client()
+    response = client.chat.complete(
+        model=MISTRAL_FINE_TUNED_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        temperature=0.1,
+        max_tokens=1500,
+    )
+    logger.info("  Research Agent: using Mistral API (fallback)")
+    return response.choices[0].message.content.strip()
 
 
 # ── Vector DB Retrieval ───────────────────────────────────────────────────────
@@ -132,7 +199,7 @@ def retrieve_from_vector_db(query: str, domain: str) -> list[dict]:
 # ── MCP Tool Calls (Parallel) ─────────────────────────────────────────────────
 
 def _fetch_single_mcp(d: str, url: str, query: str) -> list[dict]:
-    """Fetch from a single MCP tool — called in parallel via ThreadPoolExecutor."""
+    """Fetch from a single MCP tool — called in parallel."""
     try:
         resp = httpx.post(
             url,
@@ -141,7 +208,6 @@ def _fetch_single_mcp(d: str, url: str, query: str) -> list[dict]:
         )
         if resp.status_code == 200:
             data = resp.json()
-            # Only keep results with valid government URLs
             return [
                 r for r in data.get("results", [])
                 if _is_valid_gov_url(r.get("source_url", ""))
@@ -153,8 +219,7 @@ def _fetch_single_mcp(d: str, url: str, query: str) -> list[dict]:
 
 def _call_mcp_tool(domain: str, query: str) -> list[dict]:
     """
-    Call MCP Lambda tools in PARALLEL for faster response.
-    All domain tools called simultaneously — saves 3-4 seconds vs sequential.
+    Call MCP Lambda tools in PARALLEL.
     Only returns documents with valid .gov.in or rbi.org.in URLs.
     """
     url_map = {
@@ -220,10 +285,7 @@ def _format_context(rag_docs: list[dict], live_docs: list[dict]) -> str:
 def run_research_agent(query: str, domain: str) -> dict:
     """
     Main function for Research Agent (Agent 1).
-    1. Retrieves from vector DB (RAG_TOP_K=10 documents)
-    2. Calls MCP tools in parallel for live data
-    3. Generates answer using Mistral
-    Returns structured JSON answer.
+    Uses fine-tuned Mistral 7B (HuggingFace) → falls back to Mistral API.
     """
     logger.info(f"Research Agent | Query: {query[:60]}... | Domain: {domain}")
 
@@ -231,41 +293,34 @@ def run_research_agent(query: str, domain: str) -> dict:
     rag_docs = retrieve_from_vector_db(query, domain)
     logger.info(f"  Retrieved {len(rag_docs)} documents from vector DB (TOP_K={RAG_TOP_K})")
 
-    # Step 2: Parallel MCP tool calls (valid gov URLs only)
+    # Step 2: Parallel MCP tool calls
     live_docs = _call_mcp_tool(domain, query)
     logger.info(f"  Fetched {len(live_docs)} live documents from MCP tools")
 
     # Step 3: Format context
     context = _format_context(rag_docs, live_docs)
 
-    # Step 4: Generate answer with Mistral
-    client = _get_mistral_client()
+    # Step 4: Format prompt
     user_message = RESEARCH_AGENT_QUERY.format(
         context=context,
         query=query,
         domain=domain,
     )
 
+    # Step 5: Try fine-tuned HF model first, fall back to Mistral API
     try:
-        response = client.chat.complete(
-            model=MISTRAL_FINE_TUNED_MODEL,
-            messages=[
-                {"role": "system", "content": RESEARCH_AGENT_SYSTEM},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.1,
-            max_tokens=1500,
-        )
-        raw_answer = response.choices[0].message.content.strip()
+        raw_answer = _call_hf_inference(RESEARCH_AGENT_SYSTEM, user_message)
+        if raw_answer is None:
+            raw_answer = _call_mistral_api(RESEARCH_AGENT_SYSTEM, user_message)
     except Exception as e:
-        logger.error(f"Mistral API error in Research Agent: {e}")
+        logger.error(f"All LLM calls failed in Research Agent: {e}")
         return {
             "error": str(e),
             "summary": "Research failed due to API error.",
             "confidence_level": "LOW",
         }
 
-    # Step 5: Parse JSON response
+    # Step 6: Parse JSON response
     try:
         clean = raw_answer.replace("```json", "").replace("```", "").strip()
         answer_dict = json.loads(clean)
@@ -282,7 +337,7 @@ def run_research_agent(query: str, domain: str) -> dict:
             "domain": domain,
         }
 
-
+    # Attach source docs for Critic Agent verification
     answer_dict["_rag_sources"] = rag_docs
     answer_dict["_live_sources"] = live_docs
 

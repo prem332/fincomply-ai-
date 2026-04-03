@@ -63,7 +63,6 @@ def _doc_to_instruction_example(doc: dict, domain: str) -> dict:
 
     instruction = f"What does the {domain.upper()} regulation '{title[:100]}' say?"
 
-    # Input: the regulatory context (what's in the circular)
     input_text = (
         f"Source: {url}\n"
         f"Circular: {circ_no}\n"
@@ -71,7 +70,6 @@ def _doc_to_instruction_example(doc: dict, domain: str) -> dict:
         f"Content: {content[:1000]}"
     )
 
-    # Output: structured JSON answer
     output_dict = {
         "summary": title[:200],
         "circular_number": circ_no,
@@ -121,7 +119,7 @@ def prepare_dataset() -> None:
                         logger.info(f"    + Added: {doc.get('title', '')[:60]}")
             except Exception as e:
                 logger.warning(f"  Failed for '{query}': {e}")
-            time.sleep(1)   # Polite rate limiting for government sites
+            time.sleep(1)
 
 
     seen: set = set()
@@ -138,8 +136,6 @@ def prepare_dataset() -> None:
 
     logger.info(f"\n✓ Dataset saved: {OUTPUT_FILE}")
     logger.info(f"  Total examples: {len(unique_examples)}")
-    logger.info(f"\nNEXT STEP: Upload {OUTPUT_FILE} to Google Colab Files panel")
-    logger.info(f"  Then run fine_tuning/train_mistral_qlora.py in Colab")
 
 
 if __name__ == "__main__":
